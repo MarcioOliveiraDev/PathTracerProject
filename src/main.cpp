@@ -20,7 +20,7 @@
 // Configurações de renderização
 const int WIDTH = 512;
 const int HEIGHT = 512;
-const int SAMPLES_PER_PIXEL = 600;
+const int SAMPLES_PER_PIXEL = 800;
 const int MAX_DEPTH = 8;
 const int RR_DEPTH = 3;
 const float GAMMA = 2.2f;
@@ -297,5 +297,6 @@ int main() {
     stbi_write_png("output/render.png", WIDTH, HEIGHT, 3, pixels.data(), WIDTH * 3);
     std::cout << "Imagem salva em: output/render.png" << std::endl;
     
+
     return 0;
 }

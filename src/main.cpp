@@ -96,126 +96,145 @@ public:
 
 // Path tracing integrador
 Color trace(const Ray& r, const Scene& scene, int depth) {
+    // 1. Limite de recursão (profundidade máxima)
     if (depth >= MAX_DEPTH) {
         return Color(0, 0, 0);
     }
     
+    // 2. Interseção com a cena
     HitRecord rec;
     if (!scene.hit(r, 0.001f, 1e30f, rec)) {
-        // Cor de fundo (céu)
-        return Color(0.5f, 0.7f, 1.0f) * 0.3f;
+        // Cor de fundo (céu escuro para Cornell Box)
+        return Color(0.05f, 0.05f, 0.05f);
     }
     
-    // Se acertou uma luz, retorna emissão
+    // 3. Se acertou uma luz (material emissivo), retorna a cor da luz
     if (rec.emission.length() > 0.0f) {
         return rec.emission;
     }
 
-    // Heurística simples: esfera metálica é a grande à direita (x > 0)
-    //bool is_metal = (rec.p.y > 0.1f && rec.p.y < 1.5f && rec.p.x > 0.0f);
-    
-    // Russian Roulette a partir de RR_DEPTH
+    // 4. Otimização: Roleta Russa (Russian Roulette)
+    // Encerra caminhos aleatoriamente para economizar tempo em profundidades altas
     if (depth >= RR_DEPTH) {
         float p = std::max({rec.albedo.x, rec.albedo.y, rec.albedo.z});
-        p = std::clamp(p, 0.1f, 0.99f);
+        p = std::clamp(p, 0.1f, 0.99f); // Probabilidade de continuar
+        
         if (random_float() > p) {
-            return Color(0, 0, 0);
+            return Color(0, 0, 0); // Caminho "morreu"
         }
-        rec.albedo = rec.albedo / p;
+        rec.albedo = rec.albedo / p; // Compensa a energia dos que sobreviveram
     }
     
-    // VARIANTE 9: Aplicar textura sólida nos objetos (não nas paredes)
-    // Você pode identificar paredes por posição ou flag
-    // Aqui, vou aplicar textura em esferas e geometria fora de certos limites
-    bool is_wall = (std::abs(rec.p.x + 1.0f) < 0.01f) || // parede esquerda
-                   (std::abs(rec.p.x - 1.0f) < 0.01f) || // parede direita
-                   (std::abs(rec.p.z + 1.0f) < 0.01f) || // parede traseira
-                   (std::abs(rec.p.y) < 0.01f) ||        // chão
-                   (std::abs(rec.p.y - 2.0f) < 0.01f);   // teto
-    
-    if (!is_wall && rec.mat_type != METAL) {
-        // Aplicar textura sólida (escolha uma):
-        // rec.albedo = scene.solid_tex.marble(rec.p);
+    // 5. VARIANTE 9: Aplicação de Textura Sólida
+    // Se o objeto foi marcado como TEXTURED (ex: caixas do OBJ), aplicamos a textura.
+    if (rec.mat_type == TEXTURED) {
+        // Você pode alternar entre wood, marble, etc.
         rec.albedo = scene.solid_tex.wood(rec.p);
-        // rec.albedo = scene.solid_tex.checkerboard(rec.p);
-        // rec.albedo = scene.solid_tex.clouds(rec.p);
     }
-    
-    // Amostragem cosine-weighted
-    /*Vec3 scatter_direction = cosine_sample_hemisphere(rec.normal);
-    Ray scattered(rec.p, scatter_direction);
-    
-    // BRDF lambertiano: albedo / π (cancelado por pdf = cos(θ) / π)
-    Color incoming = trace(scattered, scene, depth + 1);
-    return rec.albedo * incoming;*/
 
+    // 6. Cálculo do Espalhamento (Scattering) baseado no Material
+    Ray scattered;
     Vec3 scatter_direction;
-    // NOVA LÓGICA DE MATERIAL
+
     if (rec.mat_type == METAL) {
+        // --- MATERIAL METÁLICO (Especular) ---
         Vec3 reflected = Vec3::reflect(r.direction.normalized(), rec.normal);
-        // Usa o 'fuzz' que veio do objeto
+        
+        // Adiciona rugosidade usando o parâmetro 'fuzz' do objeto
         scatter_direction = (reflected + rec.fuzz * cosine_sample_hemisphere(rec.normal)).normalized();
         
-        // Se refletir para dentro, absorve
+        // Se o raio refletido for para dentro da superfície, ele é absorvido
         if (Vec3::dot(scatter_direction, rec.normal) <= 0.0f) {
             return Color(0, 0, 0);
         }
     } else {
-        // MATERIAL DIFUSO
+        // --- MATERIAL DIFUSO / TEXTURIZADO (Lambertiano) ---
+        // Amostragem cosseno para iluminação global suave
         scatter_direction = cosine_sample_hemisphere(rec.normal);
     }
 
-    Ray scattered(rec.p, scatter_direction);
+    // Gera o novo raio e continua o rastreamento recursivo
+    scattered = Ray(rec.p, scatter_direction);
     Color incoming = trace(scattered, scene, depth + 1);
 
-    // Para metal ideal, o termo é basicamente albedo * radiância refletida.
-    // Para difuso, continua coerente com BRDF lambertiano simplificado.
+    // Equação de Renderização simplificada: Cor = Albedo * Luz Recebida
     return rec.albedo * incoming;
-
-
 }
 
 // Configurar cena Cornell Box
 Scene setup_scene() {
     Scene scene;
     
-    // --- PAREDES (Mantêm-se iguais, pois definimos no plane.h que são DIFFUSE por padrão) ---
+    // 1. Carrega O ARQUIVO DO PROFESSOR completo (paredes + caixas)
+    auto mesh = OBJLoader::load("scenes/cornell_box.obj");
     
-    // Parede esquerda (vermelha)
-    scene.planes.push_back(Plane(Point3(-1, 0, 0), Vec3(1, 0, 0), Color(0.63f, 0.065f, 0.05f)));
+    if (mesh.empty()) {
+        std::cerr << "ERRO: Malha vazia! Verifique o caminho do arquivo." << std::endl;
+        return scene;
+    }
+
+    // 2. Lógica de Normalização (Auto-Scale)
+    // A Cornell Box original vai de 0 a 555. Queremos converter para -1 a 1 (tamanho 2).
     
-    // Parede direita (verde)
-    scene.planes.push_back(Plane(Point3(1, 0, 0), Vec3(-1, 0, 0), Color(0.14f, 0.45f, 0.091f)));
+    // Encontra os limites (Bounding Box)
+    float min_x = 1e9, max_x = -1e9;
+    float min_y = 1e9, max_y = -1e9;
+    float min_z = 1e9, max_z = -1e9;
+
+    for (const auto& tri : mesh) {
+        for (const auto& v : {tri.v0, tri.v1, tri.v2}) {
+            if (v.x < min_x) min_x = v.x; if (v.x > max_x) max_x = v.x;
+            if (v.y < min_y) min_y = v.y; if (v.y > max_y) max_y = v.y;
+            if (v.z < min_z) min_z = v.z; if (v.z > max_z) max_z = v.z;
+        }
+    }
+
+    // Calcula o centro e a escala
+    float center_x = (min_x + max_x) / 2.0f;
+    float center_y = min_y; // Base no 0
+    float center_z = (min_z + max_z) / 2.0f;
     
-    // Parede traseira (branca)
-    scene.planes.push_back(Plane(Point3(0, 0, -1), Vec3(0, 0, 1), Color(0.725f, 0.71f, 0.68f)));
+    // A sala tem ~555 de altura. Queremos altura ~2.0 na cena.
+    float max_dim = max_y - min_y; 
+    float scale = 2.0f / max_dim; 
+
+    std::cout << "Escalando cena... Fator: " << scale << std::endl;
+
+    // Aplica a transformação em todos os triângulos carregados
+    for (auto& tri : mesh) {
+        auto transform = [&](Point3& p) {
+            p.x = (p.x - center_x) * scale;
+            p.y = (p.y - center_y) * scale;
+            p.z = (p.z - center_z) * scale;
+            
+            // Opcional: Girar 180 graus se a sala estiver de costas
+            // (A Cornell box original olha para +Z, nossa câmera olha para -Z ou vice versa)
+            // Experimente descomentar se vir tudo preto:
+            p.x = -p.x; 
+            p.z = -p.z; 
+        };
+        
+        transform(tri.v0);
+        transform(tri.v1);
+        transform(tri.v2);
+        
+        // Recalcula normal
+        Vec3 e1 = tri.v1 - tri.v0;
+        Vec3 e2 = tri.v2 - tri.v0;
+        tri.normal = Vec3::cross(e1, e2).normalized();
+        
+        // Adiciona à cena
+        scene.triangles.push_back(tri);
+    }
+
+    // 3. Adiciona a Luz e Objetos Extras
+    // Como escalamos tudo para tamanho 2.0, a luz deve ficar perto de y=1.98
+    scene.spheres.push_back(Sphere(Point3(0, 1.98f, 0), 0.25f, Color(0,0,0), DIFFUSE, 0.0f, Color(15,15,15)));
     
-    // Chão (branco)
-    scene.planes.push_back(Plane(Point3(0, 0, 0), Vec3(0, 1, 0), Color(0.725f, 0.71f, 0.68f)));
-    
-    // Teto (branco)
-    scene.planes.push_back(Plane(Point3(0, 2, 0), Vec3(0, -1, 0), Color(0.725f, 0.71f, 0.68f)));
-    
-    // --- LUZ DE ÁREA ---
-    // Atualizado para o novo construtor: (pos, raio, albedo, TIPO, fuzz, emissão)
-    scene.spheres.push_back(Sphere(Point3(0, 1.98f, 0), 0.3f, Color(0,0,0), DIFFUSE, 0.0f, Color(15,15,15)));
-    
-    // --- OBJETOS MESH (CAIXAS) ---
-    // Corrigido para carregar o arquivo que você possui "cornell_box.obj"
-    // Se as caixas aparecerem pretas ou não aparecerem, verifique se o arquivo está na pasta correta "scenes/"
-    auto mesh = OBJLoader::load("scenes/cornell_box.obj", Color(0.73f, 0.73f, 0.73f));
-    scene.triangles.insert(scene.triangles.end(), mesh.begin(), mesh.end());
-    
-    // --- ESFERAS DE TESTE (MATERIAIS MISTOS) ---
-    
-    // 1. Esfera Fosca (Esquerda)
-    // Passamos DIFFUSE explicitamente
-    scene.spheres.push_back(Sphere(Point3(-0.4f, 0.3f, -0.3f), 0.3f, Color(0.7f, 0.7f, 0.7f), DIFFUSE));
-    
-    // 2. Esfera Metálica (Direita)
-    // Passamos METAL e 0.05 de fuzz (levemente fosco/rugoso)
-    scene.spheres.push_back(Sphere(Point3(0.4f, 0.5f, 0.2f), 0.5f, Color(0.95f, 0.64f, 0.54f), METAL, 0.05f));
-    
+    // Esfera Metálica (Exemplo extra, já que o OBJ já tem as caixas)
+    // Posicionada levemente à frente
+    scene.spheres.push_back(Sphere(Point3(0.4f, 0.4f, -0.4f), 0.4f, Color(0.8f, 0.8f, 0.8f), METAL, 0.05f));
+
     return scene;
 }
 

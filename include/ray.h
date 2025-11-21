@@ -18,7 +18,8 @@ struct Ray {
 
 enum MaterialType {
     DIFFUSE,
-    METAL
+    METAL,
+    TEXTURED // <--- NOVO: Para objetos que recebem a textura procedural
 };
 
 struct HitRecord {

@@ -6,23 +6,27 @@
 #include <string>
 #include <fstream>
 #include <sstream>
+#include <iostream> // Para debug
 #include "vec3.h"
 
+// Atualizando a struct Triangle para suportar MaterialType
 struct Triangle {
     Point3 v0, v1, v2;
     Vec3 normal;
     Color albedo;
     Color emission;
-    
-    Triangle(Point3 v0, Point3 v1, Point3 v2, Color a = Color(0.7,0.7,0.7), Color e = Color(0,0,0))
-        : v0(v0), v1(v1), v2(v2), albedo(a), emission(e) {
+    MaterialType mat_type; // Novo campo
+    float fuzz;
+
+    Triangle(Point3 v0, Point3 v1, Point3 v2, Color a, MaterialType t = DIFFUSE)
+        : v0(v0), v1(v1), v2(v2), albedo(a), emission(Color(0,0,0)), mat_type(t), fuzz(0.0f) {
         Vec3 e1 = v1 - v0;
         Vec3 e2 = v2 - v0;
         normal = Vec3::cross(e1, e2).normalized();
     }
     
-    // Möller–Trumbore ray-triangle intersection
     bool hit(const Ray& r, float t_min, float t_max, HitRecord& rec) const {
+        // Algoritmo de Möller–Trumbore
         Vec3 e1 = v1 - v0;
         Vec3 e2 = v2 - v0;
         Vec3 pvec = Vec3::cross(r.direction, e2);
@@ -45,10 +49,12 @@ struct Triangle {
         rec.t = t;
         rec.p = r.at(t);
         rec.set_face_normal(r, normal);
+        
+        // Passando propriedades do material
         rec.albedo = albedo;
         rec.emission = emission;
-        rec.mat_type = DIFFUSE;
-        rec.fuzz = 0.0f;
+        rec.mat_type = mat_type;
+        rec.fuzz = fuzz;
         
         return true;
     }
@@ -56,16 +62,25 @@ struct Triangle {
 
 class OBJLoader {
 public:
-    static std::vector<Triangle> load(const std::string& filename, Color default_albedo = Color(0.73,0.73,0.73)) {
+    static std::vector<Triangle> load(const std::string& filename) {
         std::vector<Triangle> triangles;
         std::vector<Point3> vertices;
         
         std::ifstream file(filename);
         if (!file.is_open()) {
-            std::cerr << "Erro ao abrir arquivo OBJ: " << filename << std::endl;
+            std::cerr << "ERRO CRÍTICO: Não foi possível abrir " << filename << std::endl;
             return triangles;
         }
+
+        // Cores padrão da Cornell Box
+        Color red_color(0.63f, 0.065f, 0.05f);
+        Color green_color(0.14f, 0.45f, 0.091f);
+        Color white_color(0.725f, 0.71f, 0.68f);
         
+        // Estado atual do parser
+        Color current_color = white_color;
+        MaterialType current_type = DIFFUSE; 
+
         std::string line;
         while (std::getline(file, line)) {
             std::istringstream iss(line);
@@ -77,38 +92,56 @@ public:
                 iss >> x >> y >> z;
                 vertices.push_back(Point3(x, y, z));
             }
+            else if (type == "usemtl") {
+                std::string mat_name;
+                iss >> mat_name;
+                
+                // Lógica simples para detectar materiais pelo nome
+                if (mat_name.find("red") != std::string::npos) {
+                    current_color = red_color;
+                    current_type = DIFFUSE;
+                }
+                else if (mat_name.find("green") != std::string::npos) {
+                    current_color = green_color;
+                    current_type = DIFFUSE;
+                }
+                else if (mat_name.find("short") != std::string::npos || 
+                         mat_name.find("tall") != std::string::npos ||
+                         mat_name.find("box") != std::string::npos) {
+                    current_color = white_color; 
+                    // AQUI ESTÁ O SEGREDO DA VARIANTE 9:
+                    // Marcamos as caixas como TEXTURED
+                    current_type = TEXTURED; 
+                }
+                else {
+                    // Paredes brancas, teto, chão
+                    current_color = white_color;
+                    current_type = DIFFUSE;
+                }
+            }
             else if (type == "f") {
-                std::vector<int> indices;
-                std::string vertex;
-                while (iss >> vertex) {
-                    // Parsear f v1/vt1/vn1 ou f v1//vn1 ou f v1
-                    int v_idx;
-                    std::istringstream viss(vertex);
-                    viss >> v_idx;
-                    indices.push_back(v_idx - 1); // OBJ usa índice 1-based
+                std::vector<int> idx;
+                std::string vertex_str;
+                while (iss >> vertex_str) {
+                    std::istringstream viss(vertex_str);
+                    int i;
+                    viss >> i;
+                    idx.push_back(i - 1);
                 }
                 
-                // Triangular face (se for quad, divide em 2 triângulos)
-                if (indices.size() >= 3) {
-                    triangles.push_back(Triangle(
-                        vertices[indices[0]],
-                        vertices[indices[1]],
-                        vertices[indices[2]],
-                        default_albedo
-                    ));
-                }
-                if (indices.size() == 4) {
-                    triangles.push_back(Triangle(
-                        vertices[indices[0]],
-                        vertices[indices[2]],
-                        vertices[indices[3]],
-                        default_albedo
-                    ));
+                if (idx.size() >= 3) {
+                    // Triângulo 1
+                    triangles.push_back(Triangle(vertices[idx[0]], vertices[idx[1]], vertices[idx[2]], current_color, current_type));
+                    
+                    // Triângulo 2 (se for quadrado/quad)
+                    if (idx.size() == 4) {
+                        triangles.push_back(Triangle(vertices[idx[0]], vertices[idx[2]], vertices[idx[3]], current_color, current_type));
+                    }
                 }
             }
         }
         
-        std::cout << "Carregados " << triangles.size() << " triângulos de " << filename << std::endl;
+        std::cout << "OBJ Carregado: " << triangles.size() << " triangulos." << std::endl;
         return triangles;
     }
 };

@@ -20,7 +20,7 @@
 // Configurações de renderização
 const int WIDTH = 512;
 const int HEIGHT = 512;
-const int SAMPLES_PER_PIXEL = 1000;
+const int SAMPLES_PER_PIXEL = 600;
 const int MAX_DEPTH = 8;
 const int RR_DEPTH = 3;
 const float GAMMA = 2.2f;

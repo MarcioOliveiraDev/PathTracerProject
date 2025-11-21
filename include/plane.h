@@ -25,6 +25,8 @@ public:
         rec.set_face_normal(r, normal);
         rec.albedo = albedo;
         rec.emission = emission;
+        rec.mat_type = DIFFUSE;
+        rec.fuzz = 0.0f;
         
         return true;
     }

@@ -112,7 +112,7 @@ Color trace(const Ray& r, const Scene& scene, int depth) {
     }
 
     // Heurística simples: esfera metálica é a grande à direita (x > 0)
-    bool is_metal = (rec.p.y > 0.1f && rec.p.y < 1.5f && rec.p.x > 0.0f);
+    //bool is_metal = (rec.p.y > 0.1f && rec.p.y < 1.5f && rec.p.x > 0.0f);
     
     // Russian Roulette a partir de RR_DEPTH
     if (depth >= RR_DEPTH) {
@@ -133,7 +133,7 @@ Color trace(const Ray& r, const Scene& scene, int depth) {
                    (std::abs(rec.p.y) < 0.01f) ||        // chão
                    (std::abs(rec.p.y - 2.0f) < 0.01f);   // teto
     
-    if (!is_wall && !is_metal) {
+    if (!is_wall && rec.mat_type != METAL) {
         // Aplicar textura sólida (escolha uma):
         // rec.albedo = scene.solid_tex.marble(rec.p);
         rec.albedo = scene.solid_tex.wood(rec.p);
@@ -150,21 +150,18 @@ Color trace(const Ray& r, const Scene& scene, int depth) {
     return rec.albedo * incoming;*/
 
     Vec3 scatter_direction;
-    if (is_metal) {
-        // MATERIAL METÁLICO: reflexão especular + "fuzz" (rugosidade)
-        float fuzz = 0.05f; // 0 = espelho perfeito; maior = mais borrado
+    // NOVA LÓGICA DE MATERIAL
+    if (rec.mat_type == METAL) {
         Vec3 reflected = Vec3::reflect(r.direction.normalized(), rec.normal);
+        // Usa o 'fuzz' que veio do objeto
+        scatter_direction = (reflected + rec.fuzz * cosine_sample_hemisphere(rec.normal)).normalized();
         
-        // Adiciona um pequeno ruído hemisférico em torno da reflexão para rugosidade
-        Vec3 fuzz_dir = cosine_sample_hemisphere(rec.normal);
-        scatter_direction = (reflected + fuzz * fuzz_dir).normalized();
-        
-        // Se refletir para dentro da superfície, mata o raio
+        // Se refletir para dentro, absorve
         if (Vec3::dot(scatter_direction, rec.normal) <= 0.0f) {
             return Color(0, 0, 0);
         }
     } else {
-        // MATERIAL DIFUSO: o que você já tinha
+        // MATERIAL DIFUSO
         scatter_direction = cosine_sample_hemisphere(rec.normal);
     }
 
@@ -182,7 +179,8 @@ Color trace(const Ray& r, const Scene& scene, int depth) {
 Scene setup_scene() {
     Scene scene;
     
-    // Paredes da Cornell Box (planos infinitos com limites implícitos)
+    // --- PAREDES (Mantêm-se iguais, pois definimos no plane.h que são DIFFUSE por padrão) ---
+    
     // Parede esquerda (vermelha)
     scene.planes.push_back(Plane(Point3(-1, 0, 0), Vec3(1, 0, 0), Color(0.63f, 0.065f, 0.05f)));
     
@@ -195,24 +193,28 @@ Scene setup_scene() {
     // Chão (branco)
     scene.planes.push_back(Plane(Point3(0, 0, 0), Vec3(0, 1, 0), Color(0.725f, 0.71f, 0.68f)));
     
-    // Teto (branco, com luz no centro)
+    // Teto (branco)
     scene.planes.push_back(Plane(Point3(0, 2, 0), Vec3(0, -1, 0), Color(0.725f, 0.71f, 0.68f)));
     
-    // Luz de área (esfera emissiva no teto)
-    scene.spheres.push_back(Sphere(Point3(0, 1.98f, 0), 0.3f, Color(0,0,0), Color(15,15,15)));
+    // --- LUZ DE ÁREA ---
+    // Atualizado para o novo construtor: (pos, raio, albedo, TIPO, fuzz, emissão)
+    scene.spheres.push_back(Sphere(Point3(0, 1.98f, 0), 0.3f, Color(0,0,0), DIFFUSE, 0.0f, Color(15,15,15)));
     
-    // OPÇÃO 1: Carregar caixas de arquivo OBJ
-    /*
-    auto box1 = OBJLoader::load("scenes/short-box.obj", Color(0.73f, 0.73f, 0.73f));
-    auto box2 = OBJLoader::load("scenes/tall-box.obj", Color(0.73f, 0.73f, 0.73f));
-    scene.triangles.insert(scene.triangles.end(), box1.begin(), box1.end());
-    scene.triangles.insert(scene.triangles.end(), box2.begin(), box2.end());
-    */
+    // --- OBJETOS MESH (CAIXAS) ---
+    // Corrigido para carregar o arquivo que você possui "cornell_box.obj"
+    // Se as caixas aparecerem pretas ou não aparecerem, verifique se o arquivo está na pasta correta "scenes/"
+    auto mesh = OBJLoader::load("scenes/cornell_box.obj", Color(0.73f, 0.73f, 0.73f));
+    scene.triangles.insert(scene.triangles.end(), mesh.begin(), mesh.end());
     
-    // OPÇÃO 2: Esferas de teste (mais simples)
-    scene.spheres.push_back(Sphere(Point3(-0.4f, 0.3f, -0.3f), 0.3f, Color(0.7f, 0.7f, 0.7f)));
-    //Esfera grande metálica
-    scene.spheres.push_back(Sphere(Point3(0.4f, 0.5f, 0.2f), 0.5f, Color(0.95f, 0.64f, 0.54f)));
+    // --- ESFERAS DE TESTE (MATERIAIS MISTOS) ---
+    
+    // 1. Esfera Fosca (Esquerda)
+    // Passamos DIFFUSE explicitamente
+    scene.spheres.push_back(Sphere(Point3(-0.4f, 0.3f, -0.3f), 0.3f, Color(0.7f, 0.7f, 0.7f), DIFFUSE));
+    
+    // 2. Esfera Metálica (Direita)
+    // Passamos METAL e 0.05 de fuzz (levemente fosco/rugoso)
+    scene.spheres.push_back(Sphere(Point3(0.4f, 0.5f, 0.2f), 0.5f, Color(0.95f, 0.64f, 0.54f), METAL, 0.05f));
     
     return scene;
 }

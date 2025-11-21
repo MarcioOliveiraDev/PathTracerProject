@@ -9,9 +9,13 @@ public:
     float radius;
     Color albedo;
     Color emission;
+    // NOVOS CAMPOS
+    MaterialType mat_type;
+    float fuzz;
     
-    Sphere(Point3 c, float r, Color a = Color(0.7,0.7,0.7), Color e = Color(0,0,0))
-        : center(c), radius(r), albedo(a), emission(e) {}
+    // CONSTRUTOR ATUALIZADO: Agora aceita type e fuzz
+    Sphere(Point3 c, float r, Color a, MaterialType type = DIFFUSE, float f = 0.0f, Color e = Color(0,0,0))
+        : center(c), radius(r), albedo(a), emission(e), mat_type(type), fuzz(f) {}
     
     bool hit(const Ray& r, float t_min, float t_max, HitRecord& rec) const {
         Vec3 oc = r.origin - center;
@@ -37,6 +41,10 @@ public:
         rec.set_face_normal(r, outward_normal);
         rec.albedo = albedo;
         rec.emission = emission;
+
+        // ADICIONE ESTAS LINHAS PARA PASSAR A INFORMAÇÃO DO MATERIAL
+        rec.mat_type = mat_type;
+        rec.fuzz = fuzz;
         
         return true;
     }

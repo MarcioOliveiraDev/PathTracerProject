@@ -16,12 +16,20 @@ struct Ray {
     }
 };
 
+enum MaterialType {
+    DIFFUSE,
+    METAL
+};
+
 struct HitRecord {
     Point3 p;           // Ponto de interseção
     Vec3 normal;        // Normal da superfície
     float t;            // Distância ao longo do raio
     Color albedo;       // Cor difusa do material
     Color emission;     // Emissão (luz)
+    // ADICIONE ESTES DOIS CAMPOS:
+    MaterialType mat_type; 
+    float fuzz;
     bool front_face;    // Se acertou face frontal
     
     void set_face_normal(const Ray& r, const Vec3& outward_normal) {
